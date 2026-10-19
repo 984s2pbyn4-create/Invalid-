@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Скан в Word (офлайн)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=PT+Serif:ital,wght@0,400;0,700;1,400&family=PT+Sans:wght@400;700&family=PT+Mono&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+:root{
+  --bg:#E8EDF1; --surface:#FFFFFF; --ink:#18232E; --muted:#5B6976; --line:#C9D3DB;
+  --accent:#2B579A; --accent-ink:#FFFFFF; --ok:#2E7D4F; --err:#B3261E;
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#121A22; --surface:#1B2631; --ink:#E4EAF0; --muted:#97A5B2; --line:#2E3B48;
+    --accent:#6F9BE0; --accent-ink:#0C1520; --ok:#6CC08E; --err:#F2938C; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121A22; --surface:#1B2631; --ink:#E4EAF0; --muted:#97A5B2; --line:#2E3B48;
+  --accent:#6F9BE0; --accent-ink:#0C1520; --ok:#6CC08E; --err:#F2938C; color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
+main{max-width:760px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.75rem;line-height:1.2;margin:8px 0 4px;font-weight:600;letter-spacing:-.01em}
+.lead{color:var(--muted);margin:0 0 20px;max-width:60ch}
+.drop{display:block;border:2px dashed var(--line);border-radius:14px;background:var(--surface);padding:28px 16px;text-align:center;cursor:pointer;transition:border-color .15s}
+.drop:hover,.drop.over{border-color:var(--accent)}
+.drop strong{display:block;font-size:1.1rem;font-weight:600}
+.drop span{color:var(--muted);font-size:.92rem}
+.drop input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.notice{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:var(--surface);border-left:3px solid var(--err);font-size:.92rem;display:none}
+.notice.show{display:block}
+.pages{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:8px}
+.pg{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;background:var(--surface);border-radius:10px;padding:8px}
+.pg img{width:52px;height:68px;object-fit:cover;border-radius:4px;border:1px solid var(--line);background:#fff}
+.pg .nm{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pg .st{font-size:.88rem;color:var(--muted)}
+.pg .st.ok{color:var(--ok)} .pg .st.err{color:var(--err)}
+.pg button{border:0;background:none;color:var(--muted);font-size:1.4rem;line-height:1;padding:8px 10px;cursor:pointer;border-radius:8px}
+.pg button:focus-visible,.btn:focus-visible,.drop:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.opts{margin:16px 0 0;display:grid;gap:10px;font-size:.95rem}
+.opts label{display:flex;gap:10px;align-items:flex-start}
+.opts input[type=checkbox]{width:20px;height:20px;margin:2px 0 0;accent-color:var(--accent);flex:none}
+.opts small{display:block;color:var(--muted)}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-weight:500;padding:12px 18px;border-radius:10px;cursor:pointer;min-height:48px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);flex:1 1 200px}
+.btn:disabled{opacity:.45;cursor:default}
+.progress{height:4px;background:var(--line);border-radius:2px;margin-top:14px;overflow:hidden;display:none}
+.progress.show{display:block}
+.progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+.status{margin-top:8px;font-size:.92rem;color:var(--muted);min-height:1.4em}
+.out{margin-top:28px;display:none}
+.out.show{display:block}
+.out h2{font-size:1.15rem;font-weight:600;margin:0 0 10px}
+.fname{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:0 12px;margin-bottom:12px}
+.fname input{flex:1;min-width:0;border:0;background:none;color:var(--ink);font:inherit;padding:12px 0;outline:none}
+.fname span{color:var(--muted)}
+.sheets{display:grid;gap:16px}
+.sheet{position:relative;container-type:inline-size;background:#fff;color:#111;border-radius:3px;box-shadow:0 1px 3px rgba(20,35,50,.25);overflow:hidden;width:100%}
+.sheet .orig{position:absolute;inset:0;width:100%;height:100%;opacity:0;pointer-events:none;transition:opacity .2s}
+.overlay .sheet .orig{opacity:.35}
+.overlay .sheet .it,.overlay .sheet .tb{color:#B3261E}
+.sheet .it{position:absolute;white-space:pre-wrap;line-height:1.15;font-family:"PT Serif","Times New Roman",serif;overflow-wrap:anywhere}
+.sheet .it.sans{font-family:"PT Sans",Arial,sans-serif}
+.sheet .it.mono{font-family:"PT Mono","Courier New",monospace}
+.sheet .im{position:absolute;object-fit:fill}
+.sheet .tb{position:absolute;font-family:"PT Serif","Times New Roman",serif;line-height:1.15}
+.sheet .tb table{border-collapse:collapse;width:100%;table-layout:fixed}
+.sheet .tb td{border:1px solid #444;padding:0 .3em;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Скан в Word</h1>
+  <p class="lead">Фото или PDF превращаются в документ Word, похожий на оригинал. Распознавание идёт прямо на устройстве, без Claude и без аккаунта.</p>
+
+  <label class="drop" id="drop">
+    <input id="file" type="file" accept="image/*,application/pdf" multiple>
+    <strong>Добавить фото или PDF</strong>
+    <span>Можно несколько файлов, страницы пойдут по порядку</span>
+  </label>
+  <div class="notice" id="notice"></div>
+
+  <ul class="pages" id="pages"></ul>
+
+  <div class="opts" id="opts" hidden>
+    <label><input type="checkbox" id="useText" checked>
+      <span>Для PDF с готовым текстом брать его напрямую<small>Мгновенно и точнее, чем распознавание</small></span></label>
+  </div>
+
+  <div class="row" id="actions" hidden>
+    <button class="btn primary" id="run">Распознать</button>
+    <button class="btn" id="stop" hidden>Остановить</button>
+    <button class="btn" id="clear">Очистить</button>
+  </div>
+  <div class="progress" id="prog"><i></i></div>
+  <div class="status" id="status" role="status"></div>
+
+  <section class="out" id="out">
+    <h2>Результат</h2>
+    <div class="fname"><input id="fname" value="Распознанный документ" aria-label="Имя файла"><span>.docx</span></div>
+    <div class="row" style="margin-top:0;margin-bottom:12px">
+      <button class="btn primary" id="save">Скачать Word</button>
+      <button class="btn" id="copy">Копировать текст</button>
+    </div>
+    <div class="opts" style="margin:0 0 14px">
+      <label><input type="checkbox" id="overlay"><span>Наложить оригинал для сверки</span></label>
+    </div>
+    <div class="sheets" id="sheets"></div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const pages = [];
+let seq = 0, busy = false, stopFlag = false, worker = null, onProg = null;
+
+async function getWorker(){
+  if (worker) return worker;
+  if (!window.Tesseract) throw new Error("tesseract");
+  setStatus("Загружаю распознаватель и словари (около 20 МБ, только в первый раз)…");
+  worker = await Tesseract.createWorker("rus+eng", 1, { logger: m => { if (m.status==="recognizing text" && onProg) onProg(m.progress); } });
+  await worker.setParameters({ preserve_interword_spaces: "1" });
+  return worker;
+}
+function notice(t){ const n=$("#notice"); n.textContent=t; n.classList.add("show"); }
+function setStatus(t){ $("#status").textContent=t||""; }
+
+/* ---------- files ---------- */
+$("#file").addEventListener("change", e => { addFiles([...e.target.files]); e.target.value=""; });
+const drop=$("#drop");
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop", e => addFiles([...e.dataTransfer.files]));
+
+async function addFiles(files){
+  for (const f of files){
+    setStatus(`Открываю «${f.name}»…`);
+    try {
+      if (f.type==="application/pdf" || /\.pdf$/i.test(f.name)) await addPdf(f); else await addImage(f);
+    } catch(err){ console.error(err); notice(`Не удалось открыть «${f.name}». Попробуйте другой формат.`); }
+  }
+  setStatus(""); renderList();
+}
+function loadImg(url){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error("img")); i.src=url; }); }
+function toBlob(c,type,q){ return new Promise(r=>c.toBlob(r,type,q)); }
+function makeCanvas(w,h){ const c=document.createElement("canvas"); c.width=Math.max(1,Math.round(w)); c.height=Math.max(1,Math.round(h)); const g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,c.width,c.height); return [c,g]; }
+
+async function addImage(file){
+  const url=URL.createObjectURL(file);
+  try {
+    const img=await loadImg(url);
+    const k=Math.min(1,2200/Math.max(img.naturalWidth,img.naturalHeight));
+    const [c,g]=makeCanvas(img.naturalWidth*k,img.naturalHeight*k);
+    g.drawImage(img,0,0,c.width,c.height);
+    pushPage({name:file.name, blob:await toBlob(c,"image/jpeg",0.9), canvas:c, w:c.width, h:c.height, embedded:null});
+  } finally { URL.revokeObjectURL(url); }
+}
+async function addPdf(file){
+  if (!window.pdfjsLib) throw new Error("pdfjs");
+  const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer()), isEvalSupported:false}).promise;
+  for (let i=1;i<=pdf.numPages;i++){
+    setStatus(`«${file.name}»: страница ${i} из ${pdf.numPages}`);
+    const pg=await pdf.getPage(i);
+    const v1=pg.getViewport({scale:1});
+    const vp=pg.getViewport({scale:Math.min(3,2200/Math.max(v1.width,v1.height))});
+    const [c,g]=makeCanvas(vp.width,vp.height);
+    await pg.render({canvasContext:g, viewport:vp}).promise;
+    let embedded=null;
+    try { const blocks=tcToBlocks(await pg.getTextContent(), v1); embedded={blocks, chars:blocks.reduce((s,b)=>s+b.text.replace(/\s/g,"").length,0)}; } catch {}
+    pushPage({name:`${file.name}, стр. ${i}`, blob:await toBlob(c,"image/jpeg",0.9), canvas:c, w:c.width, h:c.height, embedded});
+  }
+}
+function pushPage(p){ pages.push({id:++seq, ...p, thumb:URL.createObjectURL(p.blob), status:"idle", blocks:null, err:""}); renderList(); }
+
+/* PDF text layer -> positioned lines */
+function tcToBlocks(tc, vp){
+  const out=[]; let cur=null;
+  const push=c=>{ const t=c.text.replace(/\s+/g," ").trim(); if(!t) return;
+    out.push({t:"p", text:t, ff:"serif", align:"left", fs:c.h*595/vp.width,
+      box:[c.x0/vp.width*1000, c.top/vp.height*1000, c.x1/vp.width*1000, c.bot/vp.height*1000].map(v=>Math.round(Math.min(1000,Math.max(0,v))))}); };
+  for (const it of tc.items){
+    if (typeof it.str!=="string") continue;
+    if (it.str===""){ if(it.hasEOL&&cur){push(cur);cur=null;} continue; }
+    const [vx,vy]=vp.convertToViewportPoint(it.transform[4], it.transform[5]);
+    const h=Math.abs(it.height||it.transform[3]||10);
+    if(!cur) cur={text:"",x0:vx,x1:vx,top:vy-h,bot:vy,h};
+    cur.text+=it.str; cur.x0=Math.min(cur.x0,vx); cur.x1=Math.max(cur.x1,vx+(it.width||0));
+    cur.top=Math.min(cur.top,vy-h); cur.bot=Math.max(cur.bot,vy); cur.h=Math.max(cur.h,h);
+    if (it.hasEOL){ push(cur); cur=null; }
+  }
+  if (cur) push(cur);
+  return out;
+}
+
+/* ---------- recognition ---------- */
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const nbox=(b,W,H)=>[b.x0/W*1000,b.y0/H*1000,b.x1/W*1000,b.y1/H*1000].map(v=>Math.round(clamp(v,0,1000)));
+function goodLine(l){
+  const t=(l.text||"").replace(/\s/g,""); if(!t) return false;
+  const letters=(t.match(/[A-Za-zА-Яа-яЁё0-9]/g)||[]).length;
+  return l.confidence>=50 && letters/t.length>=0.5;
+}
+function unionBox(bs){ return {x0:Math.min(...bs.map(b=>b.x0)),y0:Math.min(...bs.map(b=>b.y0)),x1:Math.max(...bs.map(b=>b.x1)),y1:Math.max(...bs.map(b=>b.y1))}; }
+function median(a){ const s=a.slice().sort((x,y)=>x-y); return s.length?s[s.length>>1]:0; }
+// Tesseract result -> positioned blocks (pixel boxes kept for masking)
+function ocrToBlocks(data,W,H){
+  const out=[], textPx=[];
+  const mk=(lines)=>{ // lines: [{text,bbox}]
+    const box=unionBox(lines.map(l=>l.bbox));
+    const lh=median(lines.map(l=>l.bbox.y1-l.bbox.y0));
+    out.push({t:"p", text:lines.map(l=>l.text).join("\n"), box:nbox(box,W,H), px:box, fs:clamp(lh/W*595/1.3,5,40), ff:"serif", align:"left", b:false, i:false});
+  };
+  for (const bl of data.blocks||[]) for (const pa of bl.paragraphs||[]){
+    let cur=[];
+    for (const l of pa.lines||[]){
+      if (!goodLine(l)) continue;
+      textPx.push(l.bbox);
+      const lh=l.bbox.y1-l.bbox.y0;
+      // split a line where words are far apart
+      const segs=[]; let seg=[];
+      for (const w of l.words||[]){
+        if (seg.length && w.bbox.x0-seg[seg.length-1].bbox.x1 > lh*3){ segs.push(seg); seg=[]; }
+        seg.push(w);
+      }
+      if (seg.length) segs.push(seg);
+      const pieces=segs.map(ws=>({text:ws.map(w=>w.text).join(" ").trim(), bbox:unionBox(ws.map(w=>w.bbox))})).filter(p=>p.text);
+      if (pieces.length===1){
+        const pc=pieces[0], prev=cur[cur.length-1];
+        if (prev && pc.bbox.y0-prev.bbox.y1 > lh*1.2){ mk(cur); cur=[]; }
+        cur.push(pc);
+      } else { if(cur.length){mk(cur);cur=[];} pieces.forEach(pc=>mk([pc])); }
+    }
+    if (cur.length) mk(cur);
+  }
+  detectAlign(out);
+  return {blocks:out, textPx};
+}
+function detectAlign(blocks){
+  const ps=blocks.filter(b=>b.t==="p"); if(ps.length<2) return;
+  const L=Math.min(...ps.map(b=>b.box[0])), R=Math.max(...ps.map(b=>b.box[2])), C=(L+R)/2;
+  for (const b of ps){
+    const c=(b.box[0]+b.box[2])/2;
+    if (Math.abs(R-b.box[2])<15 && b.box[0]-L>200) b.align="right";
+    else if (Math.abs(c-C)<20 && b.box[0]-L>60) b.align="center";
+  }
+}
+// find non-text graphics (stamps, logos, barcodes, photos, signatures)
+function findImages(canvas,textPx){
+  const W=canvas.width,H=canvas.height, cell=Math.max(4,Math.ceil(Math.max(W,H)/320));
+  const gw=Math.ceil(W/cell), gh=Math.ceil(H/cell);
+  const sc=document.createElement("canvas"); sc.width=gw; sc.height=gh;
+  const g=sc.getContext("2d",{willReadFrequently:true}); g.imageSmoothingQuality="high"; g.drawImage(canvas,0,0,gw,gh);
+  const d=g.getImageData(0,0,gw,gh).data, n=gw*gh, Lm=new Float32Array(n);
+  for (let i=0;i<n;i++) Lm[i]=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
+  const I=new Float64Array((gw+1)*(gh+1));
+  for (let y=0;y<gh;y++){ let rs=0; for(let x=0;x<gw;x++){ rs+=Lm[y*gw+x]; I[(y+1)*(gw+1)+x+1]=I[y*(gw+1)+x+1]+rs; } }
+  const r=8, ink=new Uint8Array(n);
+  for (let y=0;y<gh;y++) for (let x=0;x<gw;x++){
+    const x0=Math.max(0,x-r),y0=Math.max(0,y-r),x1=Math.min(gw,x+r+1),y1=Math.min(gh,y+r+1);
+    const mean=(I[y1*(gw+1)+x1]-I[y0*(gw+1)+x1]-I[y1*(gw+1)+x0]+I[y0*(gw+1)+x0])/((x1-x0)*(y1-y0));
+    const v=Lm[y*gw+x]; if (v<mean-18 || v<90) ink[y*gw+x]=1;
+  }
+  for (const b of textPx){
+    const x0=Math.max(0,Math.floor(b.x0/cell)-1), x1=Math.min(gw-1,Math.ceil(b.x1/cell)+1);
+    const y0=Math.max(0,Math.floor(b.y0/cell)-1), y1=Math.min(gh-1,Math.ceil(b.y1/cell)+1);
+    for (let y=y0;y<=y1;y++) ink.fill(0,y*gw+x0,y*gw+x1+1);
+  }
+  const dil=new Uint8Array(n);
+  for (let y=0;y<gh;y++) for (let x=0;x<gw;x++) if (ink[y*gw+x])
+    for (let dy=-2;dy<=2;dy++) for (let dx=-2;dx<=2;dx++){ const yy=y+dy,xx=x+dx; if(yy>=0&&yy<gh&&xx>=0&&xx<gw) dil[yy*gw+xx]=1; }
+  const seen=new Uint8Array(n), boxes=[], st=[];
+  for (let s=0;s<n;s++){
+    if (!dil[s]||seen[s]) continue;
+    let mnx=gw,mny=gh,mxx=0,mxy=0,cnt=0; st.push(s); seen[s]=1;
+    while (st.length){
+      const k=st.pop(), x=k%gw, y=(k/gw)|0;
+      if (ink[k]) cnt++;
+      if(x<mnx)mnx=x; if(x>mxx)mxx=x; if(y<mny)mny=y; if(y>mxy)mxy=y;
+      for (let dy=-1;dy<=1;dy++) for (let dx=-1;dx<=1;dx++){
+        const xx=x+dx,yy=y+dy; if(xx<0||yy<0||xx>=gw||yy>=gh) continue;
+        const kk=yy*gw+xx; if(dil[kk]&&!seen[kk]){ seen[kk]=1; st.push(kk); }
+      }
+    }
+    const bw=mxx-mnx+1-4, bh=mxy-mny+1-4, area=Math.max(1,bw*bh), dens=cnt/area;
+    if (bw<5||bh<5||cnt<25) continue;
+    if (area>0.6*n) continue;
+    if (area>0.15*n && dens<0.25) continue;
+    if (dens<0.06) continue;
+    boxes.push(nbox({x0:(mnx+2)*cell,y0:(mny+2)*cell,x1:(mxx-1)*cell,y1:(mxy-1)*cell},W,H));
+  }
+  return boxes;
+}
+function addImagesAndCrops(p,blocks,imgBoxes){
+  const inside=(t,b)=>{ const cx=(t.box[0]+t.box[2])/2, cy=(t.box[1]+t.box[3])/2; return cx>b[0]&&cx<b[2]&&cy>b[1]&&cy<b[3]; };
+  const keep=blocks.filter(t=>!imgBoxes.some(b=>inside(t,b) && (t.box[2]-t.box[0])*(t.box[3]-t.box[1]) < (b[2]-b[0])*(b[3]-b[1])));
+  const imgs=[];
+  for (const box0 of imgBoxes){
+    const pad=6, box=[clamp(box0[0]-pad,0,1000),clamp(box0[1]-pad,0,1000),clamp(box0[2]+pad,0,1000),clamp(box0[3]+pad,0,1000)];
+    const c=p.canvas, sx=box[0]/1000*c.width, sy=box[1]/1000*c.height, sw=(box[2]-box[0])/1000*c.width, sh=(box[3]-box[1])/1000*c.height;
+    const [cc,g]=makeCanvas(sw,sh); g.drawImage(c,sx,sy,sw,sh,0,0,cc.width,cc.height);
+    imgs.push({t:"img",box:box0,canvasCrop:cc,crop:{box}});
+  }
+  return {keep,imgs};
+}
+async function finishCrops(imgs){
+  for (const b of imgs){ const blob=await toBlob(b.canvasCrop,"image/png"); b.crop.blob=blob; b.crop.url=URL.createObjectURL(blob); delete b.canvasCrop; }
+}
+
+const STATUS={idle:"Ждёт распознавания", work:"Распознаю…", done:"Готово", error:"Ошибка"};
+function renderList(){
+  const ul=$("#pages"); ul.textContent="";
+  pages.forEach(p=>{
+    const li=document.createElement("li"); li.className="pg";
+    const im=document.createElement("img"); im.src=p.thumb; im.alt="";
+    const box=document.createElement("div"); box.style.minWidth="0";
+    const nm=document.createElement("div"); nm.className="nm"; nm.textContent=p.name;
+    const st=document.createElement("div"); st.className="st"+(p.status==="done"?" ok":p.status==="error"?" err":"");
+    st.textContent = p.status==="error" ? (p.err||STATUS.error) : (p.status==="work" && p.pct!=null) ? `Распознаю… ${p.pct}%` : (p.status==="done"&&p.via==="text") ? "Готово, взят текст из PDF" : STATUS[p.status];
+    box.append(nm,st);
+    const rm=document.createElement("button"); rm.textContent="×"; rm.setAttribute("aria-label","Убрать "+p.name); rm.disabled=busy;
+    rm.onclick=()=>{ freePage(p); pages.splice(pages.indexOf(p),1); renderList(); renderPreview(); };
+    li.append(im,box,rm); ul.append(li);
+  });
+  const has=pages.length>0;
+  $("#opts").hidden=!has; $("#actions").hidden=!has;
+  $("#run").disabled=busy || !pages.some(p=>p.status!=="done");
+  $("#clear").disabled=busy;
+}
+function freePage(p){ URL.revokeObjectURL(p.thumb); (p.blocks||[]).forEach(b=>b.crop&&b.crop.url&&URL.revokeObjectURL(b.crop.url)); }
+
+$("#run").onclick = async () => {
+  if (busy) return;
+  const todo=pages.filter(p=>p.status!=="done"); if(!todo.length) return;
+  busy=true; stopFlag=false;
+  $("#stop").hidden=false; $("#prog").classList.add("show"); renderList();
+  let n=0, fatal="";
+  for (const p of todo){
+    if (stopFlag) break;
+    n++; setStatus(`Страница ${n} из ${todo.length}…`);
+    $("#prog i").style.width=((n-1)/todo.length*100)+"%";
+    p.status="work"; p.pct=null; renderList();
+    try {
+      let blocks, textPx;
+      if ($("#useText").checked && p.embedded && p.embedded.chars>=40){
+        blocks=p.embedded.blocks.map(b=>({...b, b:false, i:false}));
+        textPx=blocks.map(b=>({x0:b.box[0]/1000*p.w, y0:b.box[1]/1000*p.h, x1:b.box[2]/1000*p.w, y1:b.box[3]/1000*p.h}));
+        p.via="text";
+      } else {
+        const w=await getWorker();
+        setStatus(`Страница ${n} из ${todo.length}…`);
+        let last=-1;
+        onProg=v=>{ const pct=Math.round(v*100); if(pct!==last){ last=pct; p.pct=pct; renderList(); $("#prog i").style.width=((n-1+v)/todo.length*100)+"%"; } };
+        const {data}=await w.recognize(p.canvas, {}, {blocks:true, text:true});
+        onProg=null;
+        ({blocks, textPx}=ocrToBlocks(data,p.w,p.h));
+        p.via="ocr";
+      }
+      const imgBoxes=findImages(p.canvas,textPx);
+      const {keep,imgs}=addImagesAndCrops(p,blocks,imgBoxes);
+      await finishCrops(imgs);
+      p.blocks=[...imgs,...keep]; p.status="done";
+    } catch(e){
+      console.error(e); onProg=null;
+      p.status="error";
+      if (!worker){ fatal="Не удалось загрузить распознаватель. Нужен интернет при первом запуске"; p.err=fatal; renderList(); break; }
+      p.err="Не получилось распознать";
+    }
+    renderList(); renderPreview();
+  }
+  $("#prog i").style.width="100%";
+  busy=false; $("#stop").hidden=true;
+  setTimeout(()=>$("#prog").classList.remove("show"),400);
+  const done=pages.filter(p=>p.status==="done").length;
+  setStatus(fatal?fatal+".":stopFlag?"Остановлено после текущей страницы.":`Готово: ${done} из ${pages.length} стр.`);
+  renderList(); renderPreview();
+};
+$("#stop").onclick=()=>{ stopFlag=true; setStatus("Остановлю после текущей страницы…"); };
+$("#clear").onclick=()=>{ pages.forEach(freePage); pages.length=0; renderList(); renderPreview(); setStatus(""); $("#notice").classList.remove("show"); };
+
+/* ---------- layout helpers ---------- */
+// font size in pt relative to a 595-pt-wide page
+function fsOf(b, hw){
+  if (b.fs>0) return b.fs;
+  if (b.t==="table") return 11;
+  const lines=Math.max(1,String(b.text||"").split("\n").length);
+  return clamp(((b.box[3]-b.box[1])/1000*595*hw)/lines/1.2, 6, 36);
+}
+function rowsOf(blocks){
+  const flow=blocks.filter(b=>b.t!=="img").slice().sort((a,b)=>a.box[1]-b.box[1]);
+  const rows=[];
+  for (const b of flow){
+    const r=rows[rows.length-1];
+    if (r){
+      const ov=Math.min(r.y1,b.box[3])-Math.max(r.y0,b.box[1]);
+      const h=Math.min(r.y1-r.y0,b.box[3]-b.box[1]);
+      const sideBySide=r.items.every(o=>Math.min(o.box[2],b.box[2])-Math.max(o.box[0],b.box[0])<=0);
+      if (ov>0 && ov>=0.5*h && sideBySide){ r.items.push(b); r.y0=Math.min(r.y0,b.box[1]); r.y1=Math.max(r.y1,b.box[3]); continue; }
+    }
+    rows.push({items:[b],y0:b.box[1],y1:b.box[3]});
+  }
+  rows.forEach(r=>r.items.sort((a,b)=>a.box[0]-b.box[0]));
+  return rows;
+}
+
+/* ---------- preview ---------- */
+function richInto(el,text){
+  String(text).split("**").forEach((part,i)=>{ if(!part) return; if(i%2){ const s=document.createElement("b"); s.textContent=part; el.append(s);} else el.append(document.createTextNode(part)); });
+}
+function place(el,box,withH){
+  el.style.left=box[0]/10+"%"; el.style.top=box[1]/10+"%"; el.style.width=(box[2]-box[0])/10+"%";
+  if (withH) el.style.height=(box[3]-box[1])/10+"%";
+}
+function renderPreview(){
+  const done=pages.filter(p=>p.status==="done"&&p.blocks);
+  $("#out").classList.toggle("show",done.length>0);
+  const wrap=$("#sheets"); wrap.textContent="";
+  done.forEach(p=>{
+    const hw=p.h/p.w;
+    const sh=document.createElement("div"); sh.className="sheet"; sh.style.aspectRatio=`${p.w} / ${p.h}`;
+    const o=document.createElement("img"); o.className="orig"; o.src=p.thumb; o.alt=""; sh.append(o);
+    p.blocks.forEach(b=>{
+      if (b.t==="img"){
+        if (!b.crop) return;
+        const im=document.createElement("img"); im.className="im"; im.src=b.crop.url; im.alt=""; place(im,b.crop.box,true); sh.append(im); return;
+      }
+      const fs=`calc(${fsOf(b,hw).toFixed(2)} * 100cqw / 595)`;
+      if (b.t==="table"){
+        const d=document.createElement("div"); d.className="tb"; place(d,b.box); d.style.fontSize=fs;
+        const t=document.createElement("table"); const cols=Math.max(...b.rows.map(r=>r.length));
+        b.rows.forEach(r=>{ const tr=t.insertRow(); for(let i=0;i<cols;i++){ richInto(tr.insertCell(), r[i]??""); } });
+        d.append(t); sh.append(d); return;
+      }
+      const d=document.createElement("div"); d.className="it"+(b.ff==="sans"?" sans":b.ff==="mono"?" mono":"");
+      place(d,b.box); d.style.fontSize=fs; d.style.textAlign=b.align==="justify"?"left":b.align;
+      if (b.b) d.style.fontWeight="700"; if (b.i) d.style.fontStyle="italic";
+      richInto(d,b.text); sh.append(d);
+    });
+    wrap.append(sh);
+  });
+}
+$("#overlay").onchange=e=>$("#sheets").classList.toggle("overlay",e.target.checked);
+
+function plainText(){
+  return pages.filter(p=>p.status==="done"&&p.blocks).map(p=>rowsOf(p.blocks).map(r=>r.items.map(b=>b.t==="table"?b.rows.map(x=>x.join("\t")).join("\n"):b.text.replace(/\*\*/g,"")).join("\t")).join("\n")).join("\n\n");
+}
+$("#copy").onclick=async()=>{
+  try { await navigator.clipboard.writeText(plainText()); setStatus("Текст скопирован."); }
+  catch { setStatus("Не удалось скопировать текст."); }
+};
+
+/* ---------- DOCX ---------- */
+const FONTS={serif:"Times New Roman",sans:"Arial",mono:"Courier New"};
+function esc(s){ return String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function rprXml(r,bold){
+  const f=FONTS[r.ff]||FONTS.serif;
+  return `<w:rPr><w:rFonts w:ascii="${f}" w:hAnsi="${f}" w:cs="${f}" w:eastAsia="${f}"/>${bold?"<w:b/><w:bCs/>":""}${r.i?"<w:i/><w:iCs/>":""}<w:sz w:val="${r.sz}"/><w:szCs w:val="${r.sz}"/></w:rPr>`;
+}
+function runsXml(text,r){
+  return String(text).split("\n").map((line,li)=>{
+    let x=li?`<w:r>${rprXml(r,r.b)}<w:br/></w:r>`:"";
+    const parts=line.split("**");
+    if (parts.length===1&&!line) return x+`<w:r>${rprXml(r,r.b)}<w:t xml:space="preserve"></w:t></w:r>`;
+    parts.forEach((pt,i)=>{ if(!pt) return; x+=`<w:r>${rprXml(r,r.b||i%2===1)}<w:t xml:space="preserve">${esc(pt)}</w:t></w:r>`; });
+    return x;
+  }).join("");
+}
+function runProps(b,ctx){ return {ff:b.ff,b:!!b.b,i:!!b.i,sz:clamp(Math.round(fsOf(b,ctx.hw)*ctx.sf*2),8,120)}; }
+function spacer(g){ return `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="${Math.max(20,Math.round(g))}" w:lineRule="exact"/><w:rPr><w:sz w:val="2"/></w:rPr></w:pPr></w:p>`; }
+function paraXml(b,rs,re,gap,ctx){
+  const x0=ctx.X(b.box[0]), x1=ctx.X(b.box[2]);
+  let L=Math.max(0,x0-rs), R=Math.max(0,re-x1);
+  const al=b.align;
+  if (al==="right") L=0; else if (al==="center"){ const s=Math.min(L,R,300); L-=s; R-=s; } else R=0;
+  if (re-rs-L-R<400){ L=0; R=0; }
+  const jc=al==="right"?"right":al==="center"?"center":"left";
+  return `<w:p><w:pPr><w:spacing w:before="${Math.round(gap)}" w:after="0" w:line="240" w:lineRule="auto"/><w:ind w:left="${L}" w:right="${R}"/><w:jc w:val="${jc}"/></w:pPr>${runsXml(b.text,runProps(b,ctx))}</w:p>`;
+}
+function tableXml(b,rs,re,ctx){
+  const cols=Math.max(1,...b.rows.map(r=>r.length));
+  let x0=Math.max(rs,ctx.X(b.box[0])), x1=Math.min(re,ctx.X(b.box[2]));
+  if (x1-x0<cols*300){ x0=rs; x1=re; }
+  let cw=b.cw&&b.cw.length===cols&&b.cw.every(v=>v>0)?b.cw:Array(cols).fill(1);
+  const s=cw.reduce((a,v)=>a+v,0);
+  const ws=cw.map(v=>Math.max(200,Math.round(v/s*(x1-x0))));
+  const tw=ws.reduce((a,v)=>a+v,0);
+  const r=runProps(b,ctx); r.b=false;
+  const bd='w:val="single" w:sz="4" w:space="0" w:color="000000"';
+  let x=`<w:tbl><w:tblPr><w:tblW w:w="${tw}" w:type="dxa"/><w:tblInd w:w="${x0-rs}" w:type="dxa"/><w:tblBorders><w:top ${bd}/><w:left ${bd}/><w:bottom ${bd}/><w:right ${bd}/><w:insideH ${bd}/><w:insideV ${bd}/></w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="57" w:type="dxa"/><w:right w:w="57" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${ws.map(w=>`<w:gridCol w:w="${w}"/>`).join("")}</w:tblGrid>`;
+  b.rows.forEach(row=>{
+    x+="<w:tr>";
+    for(let i=0;i<cols;i++) x+=`<w:tc><w:tcPr><w:tcW w:w="${ws[i]}" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>${runsXml(row[i]??"",r)}</w:p></w:tc>`;
+    x+="</w:tr>";
+  });
+  return x+"</w:tbl>";
+}
+function layoutTableXml(row,M,re,ctx){
+  const items=row.items; let start=M; const cells=[];
+  items.forEach((b,i)=>{
+    let end=i<items.length-1?Math.round((ctx.X(b.box[2])+ctx.X(items[i+1].box[0]))/2):re;
+    end=Math.max(end,start+400); cells.push({b,start,end}); start=end;
+  });
+  const nil='w:val="nil"';
+  let x=`<w:tbl><w:tblPr><w:tblW w:w="${cells[cells.length-1].end-M}" w:type="dxa"/><w:tblInd w:w="0" w:type="dxa"/><w:tblBorders><w:top ${nil}/><w:left ${nil}/><w:bottom ${nil}/><w:right ${nil}/><w:insideH ${nil}/><w:insideV ${nil}/></w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${cells.map(c=>`<w:gridCol w:w="${c.end-c.start}"/>`).join("")}</w:tblGrid><w:tr>`;
+  cells.forEach(c=>{
+    const g=Math.max(0,ctx.Y(c.b.box[1])-ctx.Y(row.y0));
+    const inner=c.b.t==="table" ? spacer(g)+tableXml(c.b,c.start,c.end,ctx)+spacer(20) : paraXml(c.b,c.start,c.end,g,ctx);
+    x+=`<w:tc><w:tcPr><w:tcW w:w="${c.end-c.start}" w:type="dxa"/></w:tcPr>${inner}</w:tc>`;
+  });
+  return x+"</w:tr></w:tbl>";
+}
+function anchorXml(n,x,y,cx,cy){
+  return `<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="${n}" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1"><wp:simplePos x="0" y="0"/><wp:positionH relativeFrom="page"><wp:posOffset>${x}</wp:posOffset></wp:positionH><wp:positionV relativeFrom="page"><wp:posOffset>${y}</wp:posOffset></wp:positionV><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapSquare wrapText="bothSides"/><wp:docPr id="${n}" name="Picture ${n}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${n}" name="image${n}.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdImg${n}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>`;
+}
+function pageXml(p,media){
+  const W=p.w>p.h?16838:11906;
+  const H=clamp(Math.round(W*p.h/p.w),5000,31680);
+  const M=567;
+  const ctx={X:v=>Math.round(v/1000*W), Y:v=>Math.round(v/1000*H), sf:(W/20)/595, hw:p.h/p.w};
+  let anchors="";
+  for (const b of p.blocks) if (b.t==="img"&&b.crop){
+    media.push(b.crop.blob); const n=media.length; const [x0,y0,x1,y1]=b.crop.box;
+    anchors+=anchorXml(n, ctx.X(x0)*635, ctx.Y(y0)*635, Math.max(1,ctx.X(x1)-ctx.X(x0))*635, Math.max(1,ctx.Y(y1)-ctx.Y(y0))*635);
+  }
+  let x=`<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/></w:pPr>${anchors}</w:p>`;
+  let cursor=M+20;
+  for (const row of rowsOf(p.blocks)){
+    const gap=Math.max(0,ctx.Y(row.y0)-cursor);
+    if (row.items.length===1 && row.items[0].t==="p") x+=paraXml(row.items[0],M,W-M,gap,ctx);
+    else x+=spacer(gap)+(row.items.length===1?tableXml(row.items[0],M,W-M,ctx):layoutTableXml(row,M,W-M,ctx));
+    cursor=Math.max(cursor,ctx.Y(row.y1));
+  }
+  x+=spacer(20);
+  const sect=`<w:sectPr><w:pgSz w:w="${W}" w:h="${H}"${W>H?' w:orient="landscape"':""}/><w:pgMar w:top="${M}" w:right="${M}" w:bottom="${M}" w:left="${M}" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>`;
+  return {x,sect};
+}
+async function buildDocx(){
+  const done=pages.filter(p=>p.status==="done"&&p.blocks);
+  const media=[]; let body="";
+  done.forEach((p,i)=>{
+    const {x,sect}=pageXml(p,media);
+    body+= i<done.length-1 ? x.replace(/<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"\/><w:rPr><w:sz w:val="2"\/><\/w:rPr><\/w:pPr><\/w:p>$/,
+      `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="20" w:lineRule="exact"/>${sect}</w:pPr></w:p>`) : x+sect;
+  });
+  if (!done.length) body=`<w:p/><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="567" w:right="567" w:bottom="567" w:left="567" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>`;
+  const zip=new JSZip();
+  zip.file("[Content_Types].xml",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`);
+  zip.file("_rels/.rels",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
+  zip.file("word/_rels/document.xml.rels",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${media.map((_,i)=>`<Relationship Id="rIdImg${i+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${i+1}.png"/>`).join("")}</Relationships>`);
+  media.forEach((blob,i)=>zip.file(`word/media/image${i+1}.png`,blob));
+  zip.file("word/styles.xml",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/><w:lang w:val="ru-RU"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style></w:styles>`);
+  zip.file("word/document.xml",`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:body>${body}</w:body></w:document>`);
+  return zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+}
+$("#save").onclick=async()=>{
+  const btn=$("#save"); btn.disabled=true;
+  try {
+    const blob=await buildDocx();
+    const base=($("#fname").value||"Документ").replace(/[\\/:*?"<>|]+/g," ").trim()||"Документ";
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download=base+".docx"; document.body.append(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),60000);
+    setStatus("Файл сохранён.");
+  } catch(e){ console.error(e); setStatus("Не удалось сохранить файл."); }
+  finally { btn.disabled=false; }
+};
+renderList();
+</script>
+</body>
+</html>
