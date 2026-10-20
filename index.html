@@ -40,6 +40,15 @@ h1{font-size:1.75rem;line-height:1.2;margin:8px 0 4px;font-weight:600;letter-spa
 .drop strong{display:block;font-size:1.1rem;font-weight:600}
 .drop span{color:var(--muted);font-size:.92rem}
 .drop input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.set{background:var(--surface);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+.set summary{cursor:pointer;font-weight:500}
+.set summary b{font-weight:600;color:var(--accent)}
+.setbody{display:grid;gap:10px;margin-top:12px}
+.field{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:10px;padding:0 12px;background:var(--bg)}
+.field span{color:var(--muted);font-size:.9rem;min-width:4.5em}
+.field input,.field select{flex:1;min-width:0;border:0;background:none;color:var(--ink);font:inherit;padding:11px 0;outline:none}
+.hint{margin:0;font-size:.88rem;color:var(--muted)}
+.hint a{color:var(--accent)}
 .notice{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:var(--surface);border-left:3px solid var(--err);font-size:.92rem;display:none}
 .notice.show{display:block}
 .pages{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:8px}
@@ -86,7 +95,20 @@ h1{font-size:1.75rem;line-height:1.2;margin:8px 0 4px;font-weight:600;letter-spa
 <body>
 <main>
   <h1>Скан в Word</h1>
-  <p class="lead">Фото или PDF превращаются в документ Word, похожий на оригинал. Распознавание идёт прямо на устройстве, без Claude и без аккаунта.</p>
+  <p class="lead">Фото или PDF превращаются в документ Word, похожий на оригинал. Распознавание идёт прямо на устройстве, через бесплатный Gemini или полностью на устройстве, без Claude и без аккаунта.</p>
+
+  <details class="set" id="set">
+    <summary>Способ распознавания: <b id="modeName"></b></summary>
+    <div class="setbody">
+      <label class="field"><span>Режим</span>
+        <select id="mode"><option value="gemini">Gemini: точнее, нужен ключ</option><option value="offline">Офлайн, прямо на устройстве</option></select></label>
+      <div id="gemBox">
+        <label class="field"><span>Ключ</span><input id="gkey" type="password" autocomplete="off" placeholder="Ключ Gemini API"></label>
+        <label class="field"><span>Модель</span><input id="gmodel" autocomplete="off" spellcheck="false"></label>
+        <p class="hint">Ключ выдаётся бесплатно на <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> (из России через VPN). Он хранится только на этом устройстве. На бесплатном тарифе Google может использовать загруженные документы для улучшения своих моделей.</p>
+      </div>
+    </div>
+  </details>
 
   <label class="drop" id="drop">
     <input id="file" type="file" accept="image/*,application/pdf" multiple>
@@ -138,6 +160,89 @@ async function getWorker(){
   worker = await Tesseract.createWorker("rus+eng", 1, { logger: m => { if (m.status==="recognizing text" && onProg) onProg(m.progress); } });
   await worker.setParameters({ preserve_interword_spaces: "1" });
   return worker;
+}
+const PROMPT = `Это изображение одной страницы документа (скан или фото). Страницу нужно воссоздать в Word максимально похоже на оригинал.
+1. Весь текст распознай дословно: без перевода, пересказа и исправлений, на языке оригинала. Сохраняй переносы строк как в оригинале (символ \\n внутри text).
+2. Всё, что не является обычным печатным или рукописным текстом документа (фотографии, рисунки, логотипы, гербы, печати и штампы, подписи, штрих-коды, QR-коды, графики), НЕ распознавай: верни как элемент img с его рамкой. Текст внутри таких элементов не дублируй отдельными блоками.
+3. Таблицы с линиями верни как table.
+4. Для каждого элемента укажи box: [x0,y0,x1,y1] — плотную рамку элемента в целых координатах от 0 до 1000 относительно ширины (x) и высоты (y) изображения, начало в левом верхнем углу.
+Ответь только JSON:
+{"blocks":[
+{"t":"p","box":[80,60,920,95],"text":"строка 1\\nстрока 2","fs":12,"ff":"serif","b":false,"i":false,"align":"left"},
+{"t":"table","box":[80,300,920,500],"rows":[["ячейка","ячейка"]],"cw":[0.4,0.6],"fs":11,"ff":"serif"},
+{"t":"img","box":[700,40,930,120],"kind":"barcode"}
+]}
+p — абзац или отдельно стоящая надпись; надписи в разных местах страницы (например, город слева и дата справа на одной строке) — разные блоки. fs — размер шрифта в пунктах, если бы ширина страницы была 210 мм. ff — "serif", "sans" или "mono". b и i — весь блок жирный или курсивный; если жирная только часть текста, выдели её **так**. align — "left", "center", "right" или "justify". cw — доли ширины столбцов таблицы. kind — "photo", "logo", "stamp", "signature", "barcode", "qr" или "other". Неразборчивое место отметь как [неразборчиво]. Если на странице ничего нет, верни {"blocks":[]}.`;
+
+function normBox(b){
+  if (!Array.isArray(b)||b.length!==4) return null;
+  let v=b.map(Number); if (v.some(x=>!isFinite(x))) return null;
+  v=v.map(x=>clamp(Math.round(x),0,1000));
+  let [x0,y0,x1,y1]=v; if(x1<x0)[x0,x1]=[x1,x0]; if(y1<y0)[y0,y1]=[y1,y0];
+  if (x1-x0<2) x1=Math.min(1000,x0+2); if (y1-y0<2) y1=Math.min(1000,y0+2);
+  return [x0,y0,x1,y1];
+}
+function cleanBlocks(res){
+  const arr=Array.isArray(res)?res:(res&&Array.isArray(res.blocks)?res.blocks:[]);
+  const out=[]; let lastY=20;
+  for (const b of arr){
+    if (!b||typeof b!=="object") continue;
+    const t=["p","table","img"].includes(b.t)?b.t:(b.t==="h1"||b.t==="h2"||b.t==="li")?"p":null;
+    if (!t) continue;
+    let box=normBox(b.box);
+    if (!box){ if(t==="img") continue; box=[60,lastY+5,940,Math.min(1000,lastY+35)]; }
+    lastY=box[3];
+    const fs=Number(b.fs)>0?clamp(Number(b.fs),4,60):undefined;
+    const ff=["serif","sans","mono"].includes(b.ff)?b.ff:"serif";
+    if (t==="img"){ out.push({t,box,kind:String(b.kind||"other")}); continue; }
+    if (t==="table"){
+      if (!Array.isArray(b.rows)) continue;
+      const rows=b.rows.filter(Array.isArray).map(r=>r.map(c=>String(c??"")));
+      if (!rows.length) continue;
+      out.push({t,box,rows,cw:Array.isArray(b.cw)?b.cw.map(Number):null,fs,ff}); continue;
+    }
+    const text=String(b.text??"").replace(/\r/g,"").replace(/^\n+|\n+$/g,"");
+    if (!text.trim()) continue;
+    const align=["left","center","right","justify"].includes(b.align)?b.align:"left";
+    out.push({t,box,text,fs,ff,b:!!b.b,i:!!b.i,align});
+  }
+  return out;
+}
+
+const LS={get:k=>{try{return localStorage.getItem(k)||"";}catch{return "";}},set:(k,v)=>{try{localStorage.setItem(k,v);}catch{}}};
+$("#gkey").value=LS.get("s2w.key"); $("#gmodel").value=LS.get("s2w.model")||"gemini-flash-latest";
+$("#mode").value=LS.get("s2w.mode")||($("#gkey").value?"gemini":"offline");
+function syncMode(){ const g=$("#mode").value==="gemini"; $("#gemBox").hidden=!g; $("#modeName").textContent=g?"Gemini":"офлайн"; LS.set("s2w.mode",$("#mode").value); }
+$("#mode").onchange=syncMode; syncMode();
+$("#gkey").onchange=e=>LS.set("s2w.key",e.target.value.trim());
+$("#gmodel").onchange=e=>LS.set("s2w.model",e.target.value.trim());
+if ($("#mode").value==="gemini" && !$("#gkey").value) $("#set").open=true;
+
+function blobToB64(blob){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=()=>rej(r.error); r.readAsDataURL(blob); }); }
+class GemErr extends Error{ constructor(msg,fatal){ super(msg); this.fatal=fatal; } }
+async function geminiPage(p){
+  const key=$("#gkey").value.trim(), model=($("#gmodel").value.trim()||"gemini-flash-latest").replace(/^models\//,"");
+  if (!key) throw new GemErr("Введите ключ Gemini в настройках",true);
+  let r;
+  try {
+    r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,{
+      method:"POST", headers:{"Content-Type":"application/json","x-goog-api-key":key},
+      body:JSON.stringify({contents:[{role:"user",parts:[{inline_data:{mime_type:"image/jpeg",data:await blobToB64(p.blob)}},{text:PROMPT}]}],
+        generationConfig:{responseMimeType:"application/json",temperature:0}})});
+  } catch { throw new GemErr("Нет связи с Gemini. Проверьте интернет и VPN",true); }
+  let j=null; try{ j=await r.json(); }catch{}
+  if (!r.ok){
+    const m=(j&&j.error&&j.error.message)||"";
+    if (r.status===429) throw new GemErr("Исчерпан бесплатный лимит Gemini, попробуйте позже",true);
+    if (r.status===400&&/API key/i.test(m)||r.status===401) throw new GemErr("Ключ Gemini не подошёл",true);
+    if (r.status===403) throw new GemErr(/location|region|country/i.test(m)?"Gemini недоступен из вашего региона, включите VPN":"Доступ к Gemini запрещён для этого ключа",true);
+    if (r.status===404) throw new GemErr("Модель не найдена, проверьте её название в настройках",true);
+    throw new GemErr("Ошибка Gemini: "+(m||r.status),false);
+  }
+  const txt=(j&&j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(x=>x.text||"").join("");
+  if (!txt) throw new GemErr("Gemini не вернул текст для этой страницы",false);
+  try { return cleanBlocks(JSON.parse(txt.replace(/```json|```/g,"").trim())); }
+  catch { throw new GemErr("Не удалось разобрать ответ Gemini",false); }
 }
 function notice(t){ const n=$("#notice"); n.textContent=t; n.classList.add("show"); }
 function setStatus(t){ $("#status").textContent=t||""; }
@@ -215,24 +320,44 @@ const nbox=(b,W,H)=>[b.x0/W*1000,b.y0/H*1000,b.x1/W*1000,b.y1/H*1000].map(v=>Mat
 function goodLine(l){
   const t=(l.text||"").replace(/\s/g,""); if(!t) return false;
   const letters=(t.match(/[A-Za-zА-Яа-яЁё0-9]/g)||[]).length;
-  return l.confidence>=50 && letters/t.length>=0.5;
+  return l.confidence>=45 && letters/t.length>=0.5;
+}
+function isTextish(l){
+  const t=(l.text||"").replace(/\s/g,""); if(!t) return false;
+  const letters=(t.match(/[A-Za-zА-Яа-яЁё0-9]/g)||[]).length;
+  return l.confidence>=25 && letters/t.length>=0.6;
 }
 function unionBox(bs){ return {x0:Math.min(...bs.map(b=>b.x0)),y0:Math.min(...bs.map(b=>b.y0)),x1:Math.max(...bs.map(b=>b.x1)),y1:Math.max(...bs.map(b=>b.y1))}; }
 function median(a){ const s=a.slice().sort((x,y)=>x-y); return s.length?s[s.length>>1]:0; }
+// even out paper tint and shadows before OCR
+function cleanForOcr(src){
+  const W=src.width,H=src.height, k=40;
+  const [s,sg]=makeCanvas(Math.max(1,W/k),Math.max(1,H/k)); sg.drawImage(src,0,0,s.width,s.height);
+  const [b,bg]=makeCanvas(W,H); bg.imageSmoothingQuality="high"; bg.drawImage(s,0,0,W,H);
+  const [o,og]=makeCanvas(W,H); og.drawImage(src,0,0);
+  const id=og.getImageData(0,0,W,H), d=id.data, bd=bg.getImageData(0,0,W,H).data;
+  for (let i=0;i<d.length;i+=4){
+    const v=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2], bl=Math.max(40,0.299*bd[i]+0.587*bd[i+1]+0.114*bd[i+2]);
+    let n=v/bl*255*1.08; n=(n-70)*255/180; n=n<0?0:n>255?255:n;
+    d[i]=d[i+1]=d[i+2]=n;
+  }
+  og.putImageData(id,0,0); return o;
+}
 // Tesseract result -> positioned blocks (pixel boxes kept for masking)
 function ocrToBlocks(data,W,H){
   const out=[], textPx=[];
-  const mk=(lines)=>{ // lines: [{text,bbox}]
+  const mk=(lines)=>{ // lines: [{text,bbox,wh}]
     const box=unionBox(lines.map(l=>l.bbox));
-    const lh=median(lines.map(l=>l.bbox.y1-l.bbox.y0));
-    out.push({t:"p", text:lines.map(l=>l.text).join("\n"), box:nbox(box,W,H), px:box, fs:clamp(lh/W*595/1.3,5,40), ff:"serif", align:"left", b:false, i:false});
+    const wh=median(lines.flatMap(l=>l.wh));
+    out.push({t:"p", text:lines.map(l=>l.text).join("\n"), box:nbox(box,W,H), px:box, fs:clamp(wh/W*595/1.1,5,36), ff:"serif", align:"left", b:false, i:false});
   };
   for (const bl of data.blocks||[]) for (const pa of bl.paragraphs||[]){
     let cur=[];
     for (const l of pa.lines||[]){
+      if (isTextish(l)) textPx.push(l.bbox);
       if (!goodLine(l)) continue;
-      textPx.push(l.bbox);
-      const lh=l.bbox.y1-l.bbox.y0;
+      const hs=(l.words||[]).filter(w=>w.text&&w.text.length>1&&w.confidence>55).map(w=>w.bbox.y1-w.bbox.y0);
+      const lh=hs.length?median(hs):(l.bbox.y1-l.bbox.y0)/2;
       // split a line where words are far apart
       const segs=[]; let seg=[];
       for (const w of l.words||[]){
@@ -240,7 +365,7 @@ function ocrToBlocks(data,W,H){
         seg.push(w);
       }
       if (seg.length) segs.push(seg);
-      const pieces=segs.map(ws=>({text:ws.map(w=>w.text).join(" ").trim(), bbox:unionBox(ws.map(w=>w.bbox))})).filter(p=>p.text);
+      const pieces=segs.map(ws=>({text:ws.map(w=>w.text).join(" ").trim(), bbox:unionBox(ws.map(w=>w.bbox)), wh:ws.filter(w=>w.text&&w.text.length>1).map(w=>w.bbox.y1-w.bbox.y0).concat([lh])})).filter(p=>p.text);
       if (pieces.length===1){
         const pc=pieces[0], prev=cur[cur.length-1];
         if (prev && pc.bbox.y0-prev.bbox.y1 > lh*1.2){ mk(cur); cur=[]; }
@@ -299,7 +424,10 @@ function findImages(canvas,textPx){
       }
     }
     const bw=mxx-mnx+1-4, bh=mxy-mny+1-4, area=Math.max(1,bw*bh), dens=cnt/area;
-    if (bw<5||bh<5||cnt<25) continue;
+    if (bw<Math.max(6,gw*0.04)||bh<Math.max(6,gw*0.03)||cnt<40) continue;
+    { let cov=0; const bx0=mnx+2,by0=mny+2,bx1=mxx-2,by1=mxy-2;
+      for (const t of textPx){ const ox=Math.min(bx1,t.x1/cell)-Math.max(bx0,t.x0/cell), oy=Math.min(by1,t.y1/cell)-Math.max(by0,t.y0/cell); if(ox>0&&oy>0) cov+=ox*oy; }
+      if (cov>0.45*area) continue; }
     if (area>0.6*n) continue;
     if (area>0.15*n && dens<0.25) continue;
     if (dens<0.06) continue;
@@ -332,7 +460,7 @@ function renderList(){
     const box=document.createElement("div"); box.style.minWidth="0";
     const nm=document.createElement("div"); nm.className="nm"; nm.textContent=p.name;
     const st=document.createElement("div"); st.className="st"+(p.status==="done"?" ok":p.status==="error"?" err":"");
-    st.textContent = p.status==="error" ? (p.err||STATUS.error) : (p.status==="work" && p.pct!=null) ? `Распознаю… ${p.pct}%` : (p.status==="done"&&p.via==="text") ? "Готово, взят текст из PDF" : STATUS[p.status];
+    st.textContent = p.status==="error" ? (p.err||STATUS.error) : (p.status==="work" && p.pct!=null) ? `Распознаю… ${p.pct}%` : (p.status==="done"&&p.via==="text") ? "Готово, взят текст из PDF" : (p.status==="done"&&p.via==="gemini") ? "Готово, Gemini" : STATUS[p.status];
     box.append(nm,st);
     const rm=document.createElement("button"); rm.textContent="×"; rm.setAttribute("aria-label","Убрать "+p.name); rm.disabled=busy;
     rm.onclick=()=>{ freePage(p); pages.splice(pages.indexOf(p),1); renderList(); renderPreview(); };
@@ -362,23 +490,38 @@ $("#run").onclick = async () => {
         blocks=p.embedded.blocks.map(b=>({...b, b:false, i:false}));
         textPx=blocks.map(b=>({x0:b.box[0]/1000*p.w, y0:b.box[1]/1000*p.h, x1:b.box[2]/1000*p.w, y1:b.box[3]/1000*p.h}));
         p.via="text";
+      } else if ($("#mode").value==="gemini"){
+        blocks=await geminiPage(p); textPx=null; p.via="gemini";
       } else {
         const w=await getWorker();
         setStatus(`Страница ${n} из ${todo.length}…`);
         let last=-1;
         onProg=v=>{ const pct=Math.round(v*100); if(pct!==last){ last=pct; p.pct=pct; renderList(); $("#prog i").style.width=((n-1+v)/todo.length*100)+"%"; } };
-        const {data}=await w.recognize(p.canvas, {}, {blocks:true, text:true});
+        const {data}=await w.recognize(cleanForOcr(p.canvas), {}, {blocks:true, text:true});
         onProg=null;
         ({blocks, textPx}=ocrToBlocks(data,p.w,p.h));
         p.via="ocr";
       }
-      const imgBoxes=findImages(p.canvas,textPx);
-      const {keep,imgs}=addImagesAndCrops(p,blocks,imgBoxes);
-      await finishCrops(imgs);
-      p.blocks=[...imgs,...keep]; p.status="done";
+      if (textPx){
+        const imgBoxes=findImages(p.canvas,textPx);
+        const {keep,imgs}=addImagesAndCrops(p,blocks,imgBoxes);
+        await finishCrops(imgs);
+        p.blocks=[...imgs,...keep];
+      } else {
+        const imgs=blocks.filter(b=>b.t==="img");
+        for (const b of imgs){
+          const pad=8, box=[clamp(b.box[0]-pad,0,1000),clamp(b.box[1]-pad,0,1000),clamp(b.box[2]+pad,0,1000),clamp(b.box[3]+pad,0,1000)];
+          const c=p.canvas, sx=box[0]/1000*c.width, sy=box[1]/1000*c.height, sw=(box[2]-box[0])/1000*c.width, sh=(box[3]-box[1])/1000*c.height;
+          const [cc,g]=makeCanvas(sw,sh); g.drawImage(c,sx,sy,sw,sh,0,0,cc.width,cc.height);
+          const blob=await toBlob(cc,"image/png"); b.crop={box,blob,url:URL.createObjectURL(blob)};
+        }
+        p.blocks=blocks;
+      }
+      p.status="done";
     } catch(e){
       console.error(e); onProg=null;
       p.status="error";
+      if (e instanceof GemErr){ p.err=e.message; if(e.fatal){ fatal=e.message; renderList(); break; } renderList(); continue; }
       if (!worker){ fatal="Не удалось загрузить распознаватель. Нужен интернет при первом запуске"; p.err=fatal; renderList(); break; }
       p.err="Не получилось распознать";
     }
